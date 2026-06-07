@@ -135,11 +135,13 @@ export default function CheckInStamp() {
     return streak;
   })();
 
+  const stamp = todayStamp;
+
   return (
     <div className="flex flex-col items-center gap-2">
       {/* ── 今日印章 ──────────────────── */}
       <AnimatePresence>
-        {stamped && todayStamp ? (
+        {stamped && stamp != null ? (
           <motion.div
             initial={{ scale: 0, rotate: -15, opacity: 0 }}
             animate={{ scale: 1, rotate: 0, opacity: 1 }}
@@ -151,7 +153,7 @@ export default function CheckInStamp() {
             <div className="relative w-20 h-20 rounded-full border-2 border-rose-200/60 flex items-center justify-center bg-rose-50/30 shadow-[0_2px_12px_-4px_rgba(180,130,130,0.15)]">
               {/* 齿轮状装饰 */}
               <div className="absolute inset-1 rounded-full border border-rose-200/30" />
-              <span className="text-2xl relative z-10">{todayStamp.emoji}</span>
+              <span className="text-2xl relative z-10">{STAMP_VARIANTS[stamp.variant].emoji}</span>
             </div>
             {/* 印章文字 */}
             <span
@@ -161,10 +163,10 @@ export default function CheckInStamp() {
                 writingMode: "horizontal-tb",
               }}
             >
-              {todayStamp.msg}
+              {stamp.msg}
             </span>
             <span className="text-[10px] text-stone-300 tracking-wide">
-              {todayStamp.date.slice(5)}
+              {stamp.date.slice(5)}
             </span>
           </motion.div>
         ) : (
@@ -232,7 +234,7 @@ export default function CheckInStamp() {
                       }}
                       className="flex flex-col items-center gap-1 py-2 rounded-xl bg-rose-50/40"
                     >
-                      <span className="text-xl">{s.emoji}</span>
+                      <span className="text-xl">{STAMP_VARIANTS[s.variant].emoji}</span>
                       <span className="text-[9px] text-stone-400 tracking-wide">
                         {s.date.slice(5)}
                       </span>

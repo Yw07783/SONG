@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 import ReviewHeatmap from "@/components/ReviewHeatmap";
 import ReviewCards from "@/components/ReviewCards";

@@ -61,14 +61,17 @@ export async function POST(req: Request) {
       const ext = path.extname(file.name).toLowerCase();
 
       if (ext === ".pdf") {
-        // pdf-parse 需要 Buffer
-        const pdfParse = (await import("pdf-parse")).default;
+        // pdf-parse v2+ ESM: named export PDFParse (class)
+        const { PDFParse } = await import("pdf-parse");
+        const parser = new PDFParse({ data: new Uint8Array(buffer) });
         try {
-          const data = await pdfParse(buffer);
-          content = data.text;
+          const result = await parser.getText();
+          content = result.text;
         } catch {
           // pdf-parse 失败时使用文件大小判断
           content = `[PDF 文件: ${fileName}, 大小: ${(buffer.length / 1024).toFixed(1)} KB。请根据文件名和大小推测内容类型。]`;
+        } finally {
+          await parser.destroy();
         }
         fileType = "pdf";
       } else if (ext === ".docx") {
