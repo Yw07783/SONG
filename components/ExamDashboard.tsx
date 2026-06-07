@@ -181,7 +181,7 @@ export default function ExamDashboard() {
                 <SelectWrapper>
                   <select
                     value={district}
-                    onChange={(e) => { const d = e.target.value; setDistrict(d); setYear(""); setExamType(""); if (d && typeof window !== "undefined") { const key = `${city}·${d}`; localStorage.setItem("jiaozhao_selected_district", key); console.log( "[考情注入] 当前目标考区:", key, "→ 该区考情数据将在下次 AI 对话中自动注入 System Prompt。"); } }}
+                    onChange={(e) => { const d = e.target.value; setDistrict(d); setYear(""); setExamType(""); if (d && typeof window !== "undefined") { const key = `${city}·${d}`; localStorage.setItem("jiaozhao_selected_district", key); } }}
                     disabled={!city}
                     className="select-base"
                   >

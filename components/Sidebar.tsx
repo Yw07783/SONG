@@ -114,6 +114,26 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    href: "/class-beacon",
+    label: "班级航标",
+    icon: (
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M2 22L12 2l10 20H2z" />
+        <line x1="7" y1="17" x2="12" y2="12" />
+        <line x1="12" y1="12" x2="17" y2="17" />
+      </svg>
+    ),
+  },
 ];
 
 export default function Sidebar() {

@@ -12,7 +12,9 @@ const deepseek = new OpenAI({
   baseURL: "https://api.deepseek.com",
 });
 
-/* ── 老袁 · 核心人格 ───────────────────────────── */
+/* ══════════════════════════════════════════════
+ * 老袁 · 核心人格（可叠加场景 System Prompt）
+ * ══════════════════════════════════════════════ */
 
 const CORE_PROMPT = `你是一位专业、严谨、极其熟悉江苏省初中语文教师招聘考试的资深备考顾问老袁。
 
@@ -61,29 +63,106 @@ const CORE_PROMPT = `你是一位专业、严谨、极其熟悉江苏省初中�
 1. 考点 → 先点明考频 → 简明讲解 → 记忆口诀
 2. 教学设计 → 搭框架（导入→初读→精读→拓展→小结）→ 逐块说明
 3. 情绪/压力 → 先认可感受，再给出可执行的具体方案
-4. 不懂的题 → 逐步拆解 → 标注关键词 → 给思路，不直接给答案
+4. 不懂的题 → 逐步拆解 → 标注关键词 → 给思路，不直接给答案`;
 
-## 示例
-老宋："实词虚化怎么记啊"
-老袁："老宋，这个知识点鼓楼区近5年考了4次。今晚花20分钟过真题例句——之=的/到/取独，乎=吗/于。刷完这10句就稳了。
+/* ══════════════════════════════════════════════
+ * 作业批改专属 Prompt（叠加层）
+ * ══════════════════════════════════════════════ */
 
-📋 今日行动清单
-- [ ] 抄写10句真题文言例句并翻译 @ 20min → 实词辨析正确率提升30%
-- [ ] 用口诀默写四大核心素养 @ 5min → 简答题保底分到手"`;
+const GRADING_PROMPT = `
+## 🖊️ 作业批改模式
+你现在处于智能助教批改模式。回复语调必须幽默、仗义、极其专业。
 
-/* ── POST Handler ──────────────────────────── */
+### 多模态批改规则
+- 若消息中包含学生作业图片（image/jpeg），必须结合图片中的手写内容进行深度批改。
+- 同时参考用户补录的文字内容（题干或参考答案），进行多模态融合分析。
+- 批改时先逐题指出对错，再逐个错题深度剖析错因。
+
+### 作文评分标准（4维 × 各20分 = 满分80）
+如果是大作文，必须严格按以下4个维度各打一个分，并给出简短评语：
+- 立意（20分）：思想深度与新颖度
+- 结构（20分）：框架完整性与层次感
+- 语言（20分）：文采表达与修辞运用
+- 核心素养要求（20分）：新课标 2022 版语文核心素养对标
+最后给出总分（满分80），并做一个总评总结。
+
+### 🔴 强制结尾
+回复结尾必须单独输出「📋 今日教学行动建议」模块（1-2 条），给出明确的操作步骤、时间节点和预期效果。`;
+
+/* ══════════════════════════════════════════════
+ * ContentPart 类型（多模态兼容）
+ * ══════════════════════════════════════════════ */
+
+interface ContentPartText {
+  type: "text";
+  text: string;
+}
+
+interface ContentPartImage {
+  type: "image_url";
+  image_url: {
+    url: string; // data:image/jpeg;base64,...
+    detail?: "low" | "high" | "auto";
+  };
+}
+
+type ContentPart = ContentPartText | ContentPartImage;
+
+interface ChatMessageInput {
+  role: "user" | "assistant" | "system";
+  content: string | ContentPart[];
+}
+
+/* ══════════════════════════════════════════════
+ * 检测是否为批改请求
+ * ══════════════════════════════════════════════ */
+
+function isGradingRequest(messages: ChatMessageInput[]): boolean {
+  const userTexts = messages
+    .filter((m) => m.role === "user")
+    .flatMap((m) => {
+      if (typeof m.content === "string") return [m.content];
+      return m.content
+        .filter((p): p is ContentPartText => p.type === "text")
+        .map((p) => p.text);
+    });
+
+  const combined = userTexts.join(" ");
+  return /批改|作文|这篇.*答案|阅读理解.*学生答案|简答题.*学生答案|默写.*学生答案|文言文.*学生答案|赏析.*学生答案/iu.test(combined);
+}
+
+function hasImageContent(messages: ChatMessageInput[]): boolean {
+  return messages.some((m) => {
+    if (typeof m.content === "string") return false;
+    return m.content.some((p) => p.type === "image_url");
+  });
+}
+
+/* ══════════════════════════════════════════════
+ * POST Handler
+ * ══════════════════════════════════════════════ */
 
 export async function POST(req: Request) {
   try {
-    const { messages, district } = (await req.json()) as {
-      messages: { role: "user" | "assistant"; content: string }[];
+    const body = await req.json() as {
+      messages: ChatMessageInput[];
       district?: string;
+      mode?: "grading" | "diagnosis" | "chat";
     };
+
+    const { messages, district, mode } = body;
 
     if (!process.env.DEEPSEEK_API_KEY) {
       return new Response(
         JSON.stringify({ error: "老袁正在维护中，请稍候再试。" }),
         { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!messages || messages.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "消息不能为空" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
       );
     }
 
@@ -103,33 +182,82 @@ export async function POST(req: Request) {
     /* ── 长期记忆注入 ──────────────── */
     const memoryPrompt = buildMemoryPrompt();
 
-    /* ── 合并 System Prompt ────────── */
-    const fullSystemPrompt = [contextPrompt, memoryPrompt, `---\n${CORE_PROMPT}`]
+    /* ── 检测场景 ────────────────── */
+    const grading = mode === "grading" || isGradingRequest(messages);
+    const multimodal = hasImageContent(messages);
+
+    /* ── 构建 System Prompt ────────── */
+    const scenePrompt = grading ? GRADING_PROMPT : "";
+    const fullSystemPrompt = [
+      contextPrompt,
+      memoryPrompt,
+      scenePrompt,
+      `---\n${CORE_PROMPT}`,
+    ]
       .filter(Boolean)
       .join("\n");
 
     /* ── 保存对话摘要 ──────────────── */
-    const lastUserMsg = messages[messages.length - 1]?.content ?? "";
-    if (lastUserMsg.length > 0 && messages.length <= 3) {
-      // 仅在对话轮次较少时记录（避免重复记录同一轮）
+    const lastUserContent = messages[messages.length - 1]?.content;
+    const lastUserText =
+      typeof lastUserContent === "string"
+        ? lastUserContent
+        : (lastUserContent as ContentPart[])
+            ?.filter((p) => p.type === "text")
+            .map((p) => (p as ContentPartText).text)
+            .join(" ") ?? "";
+
+    if (lastUserText.length > 0 && messages.length <= 3) {
       const entry: ChatMemoryEntry = {
         date: new Date().toISOString().slice(0, 10),
-        topic: lastUserMsg.slice(0, 40),
-        summary: lastUserMsg.slice(0, 120),
+        topic: lastUserText.slice(0, 40),
+        summary: lastUserText.slice(0, 120),
       };
-      try { appendChatMemory(entry); } catch { /* 忽略存储失败 */ }
+      try {
+        appendChatMemory(entry);
+      } catch {
+        /* 忽略存储失败 */
+      }
     }
 
-    /* ── 调用 DeepSeek ─────────────── */
+    /* ── 构建 DeepSeek API 消息 ────── */
+    const apiMessages = messages.map((m) => {
+      /* content 可以是 string 或 ContentPart[] — 两种都原样传递给 DeepSeek */
+      if (typeof m.content === "string") {
+        return { role: m.role, content: m.content };
+      }
+      /* 多模态 content: 验证并转换 image_url */
+      const parts = m.content.map((p) => {
+        if (p.type === "text") return p;
+        if (p.type === "image_url") {
+          const url = p.image_url?.url ?? "";
+          /* 只允许 base64 data URL 通过 */
+          if (!url.startsWith("data:image/")) {
+            return { type: "text" as const, text: "[图片格式不支持，请使用 JPEG base64]" };
+          }
+          return {
+            type: "image_url" as const,
+            image_url: {
+              url,
+              detail: (p.image_url?.detail as "low" | "high" | "auto") ?? "auto",
+            },
+          };
+        }
+        return p;
+      });
+      return { role: m.role, content: parts };
+    });
+
+    /* ── 调用 DeepSeek（流式） ─────── */
     const response = await deepseek.chat.completions.create({
       model: "deepseek-chat",
       stream: true,
       messages: [
-        { role: "system", content: fullSystemPrompt },
-        ...messages,
+        { role: "system" as const, content: fullSystemPrompt },
+        ...apiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       ],
-      temperature: 0.8,
-      max_tokens: 1200,
+      temperature: grading ? 0.6 : 0.8,
+      max_tokens: grading ? 1600 : 1200,
     });
 
     /* ── 流式输出 ──────────────────── */
@@ -141,7 +269,7 @@ export async function POST(req: Request) {
             const delta = chunk.choices[0]?.delta?.content ?? "";
             if (delta) controller.enqueue(encoder.encode(delta));
           }
-        } catch (streamErr) {
+        } catch {
           controller.enqueue(encoder.encode("[回复中断，请重试]"));
         }
         controller.close();
@@ -157,7 +285,6 @@ export async function POST(req: Request) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "老袁正在维护中，请稍候再试。";
-    console.error("[DeepSeek 接口异常]", message);
     return new Response(
       JSON.stringify({ error: message }),
       { status: 500, headers: { "Content-Type": "application/json" } },
